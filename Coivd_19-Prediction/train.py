@@ -16,8 +16,8 @@ import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader, random_split
 
 # For plotting learning curve
-from torch.utils.tensorboard.writer import SummaryWriter
-from torch.utils.tensorboard import SummaryWriter
+# from torch.utils.tensorboard.writer import SummaryWriter
+# from torch.utils.tensorboard import SummaryWriter
 
 def same_seed(seed):
     '''Fixes random number generator seeds for reproducibility.'''
@@ -119,7 +119,7 @@ def trainer(train_loader,valid_loader,model,config,device):
 
     optimizer = torch.optim.SGD(model.parameters(), lr=config['learning_rate'],momentum=0.9)
 
-    writer = SummaryWriter() # Writer of tensorboard
+    # writer = SummaryWriter() # Writer of tensorboard
     if not os.path.isdir('./models'):
         os.mkdir('./models')
 
@@ -147,7 +147,7 @@ def trainer(train_loader,valid_loader,model,config,device):
             train_pbar.set_postfix({'loss': loss.detach().item()})
 
         mean_train_loss = sum(loss_record) / len(loss_record)
-        writer.add_scalar('loss', mean_train_loss, step)
+        # writer.add_scalar('loss', mean_train_loss, step)
 
         model.eval()
         loss_record = []
@@ -161,7 +161,7 @@ def trainer(train_loader,valid_loader,model,config,device):
 
         mean_valid_loss = sum(loss_record) / len(loss_record)
         print(f'Epoch [{epoch+1}/{n_epochs}]: Train loss: {mean_train_loss:.4f},Valid loss: {mean_valid_loss:.4f}')
-        writer.add_scalar('Loss/Valid', mean_valid_loss, step)
+        # writer.add_scalar('Loss/Valid', mean_valid_loss, step)
 
         if mean_valid_loss < best_loss:
             best_loss = mean_valid_loss

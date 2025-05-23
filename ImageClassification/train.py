@@ -52,7 +52,7 @@ train_tfm = transforms.Compose([
     # 标准化（可选，通常用于预训练模型）
     # transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
 ])
-
+print("参数设置完成")
 class FoodDataset(Dataset):
     def __init__(self,path,tfm=test_tfm,files=None):
         super(FoodDataset).__init__()
@@ -202,6 +202,7 @@ class Residual_NetWork(nn.Module):
         xout = self.fc_layer(xout)
         return xout
 
+print("开始准备读取")
 batch_size = 64
 _dataset_dir = ".\\data\\food11"
 train_path = os.path.join(_dataset_dir, "training")
@@ -215,8 +216,8 @@ train_set = FoodDataset(os.path.join(_dataset_dir, "training"),tfm=train_tfm)
 train_loader = DataLoader(train_set, batch_size=batch_size, shuffle=True,num_workers=0,pin_memory=True)
 test_set = FoodDataset(os.path.join(_dataset_dir, "validation"),tfm=test_tfm)
 test_loader = DataLoader(test_set, batch_size=batch_size, shuffle=True,num_workers=0,pin_memory=True)
-
-# print("Deubg - cuda:", torch.cuda.is_available())
+# print(train_set,test_set)
+print("Deubg - cuda:", torch.cuda.is_available())
 # print("Deubg - cuda:", torch.cuda.current_device())
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
@@ -234,7 +235,7 @@ optimizer = torch.optim.Adam(model.parameters(), lr=0.0003,weight_decay=1e-5)
 # Initialize trackers,these are not parameters and should not be changed
 stale = 0
 best_acc = 0
-
+print("准备开始训练")
 def train():
     for epoch in range(n_epochs):
         # --------training--------
@@ -242,7 +243,7 @@ def train():
 
         train_loss = []
         train_accs = []
-
+        print(epoch)
         for batch in tqdm(train_loader):
             # A batch consists of image data and corresponding labels.
             imgs, labels = batch
@@ -295,7 +296,7 @@ def train():
                 logits = model(imgs.to(device))
 
             loss = criterion(logits, labels.to(device))
-
+            print("loss = ",loss)
             acc = (logits.argmax(dim=-1) == labels.to(device)).float().mean()
 
             valid_loss.append(loss.item())
@@ -326,28 +327,30 @@ def train():
                 print(f"No improvement {patience} consecutive epochs,early stopping")
                 break
 
-test_set = FoodDataset(os.path.join(_dataset_dir, "validation"),tfm=test_tfm)
-test_loader = DataLoader(test_set, batch_size=batch_size, shuffle=False,num_workers=0,pin_memory=True)
+train()
 
-# model_best = Classifier().to(device)
-model_best = Residual_NetWork().to(device)
-model_best.load_state_dict(torch.load(f".\\{_exp_name}_model.ckpt"))
-model_best.eval()
-prediction = []
-with torch.no_grad():  # 禁用梯度计算（节省内存）
-    for data, _ in test_loader:  # 忽略标签（测试集可能无标签）
-        test_pred = model_best(data.to(device))  # 前向传播
-        test_label = np.argmax(test_pred.cpu().data.numpy(), axis=1)  # 取预测类别
-        prediction += test_label.squeeze().tolist()  # 转换为列表并累积
-
-# create test csv
-def pad4(i):
-    return "0"*(4-len(str(i))) + str(i)  # 补零到4位（如3→"0003"）
-
-df = pd.DataFrame()
-df["Id"] = [pad4(i) for i in range(1, len(test_set)+1)]  # 生成ID列（0001,0002,...）
-df["Category"] = prediction  # 写入预测类别
-df.to_csv("submission.csv", index=False)  # 保存为CSV（不含行索引）
+# test_set = FoodDataset(os.path.join(_dataset_dir, "validation"),tfm=test_tfm)
+# test_loader = DataLoader(test_set, batch_size=batch_size, shuffle=False,num_workers=0,pin_memory=True)
+# #
+# # model_best = Classifier().to(device)
+# model_best = Residual_NetWork().to(device)
+# model_best.load_state_dict(torch.load(f".\\{_exp_name}_model.ckpt"))
+# model_best.eval()
+# prediction = []
+# with torch.no_grad():  # 禁用梯度计算（节省内存）
+#     for data, _ in test_loader:  # 忽略标签（测试集可能无标签）
+#         test_pred = model_best(data.to(device))  # 前向传播
+#         test_label = np.argmax(test_pred.cpu().data.numpy(), axis=1)  # 取预测类别
+#         prediction += test_label.squeeze().tolist()  # 转换为列表并累积
+#
+# # create test csv
+# def pad4(i):
+#     return "0"*(4-len(str(i))) + str(i)  # 补零到4位（如3→"0003"）
+#
+# df = pd.DataFrame()
+# df["Id"] = [pad4(i) for i in range(1, len(test_set)+1)]  # 生成ID列（0001,0002,...）
+# df["Category"] = prediction  # 写入预测类别
+# df.to_csv("submission.csv", index=False)  # 保存为CSV（不含行索引）
 
 # csv文件示例
 #Id,Category
