@@ -9,11 +9,44 @@ from torch.utils.data import DataLoader, random_split
 import torch.nn as nn
 from pyecharts.charts import Line
 from pyecharts import options as opts
+import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D  # 必须导入才能启用3D绘图
 ###### 目的:输入B曲面的采样点信息和对应的曲面标签，完成B曲面的分类任务
 label_map = {"sphere": 0, "cylinder": 1, "cone": 2
     , "plane": 3, "torus": 4, "others": 5,
        "Bsurf":6,"Fsurf":7,"Csurf":8,"Dsurf":9,"Esurf":10}  # 示例映射
 class BsurfaceDataset(Dataset):
+    def visualize_sample(self, idx):
+        """
+        可视化指定索引的点云样本。
+
+        :param idx: 要可视化的样本索引
+        """
+        points = self.samples[idx]
+        label = self.labels[idx]
+        # 转换为 NumPy 并展平为 (N, 3)
+        points_np = points.transpose(1, 2, 0)  # (H, W, 3)
+        x = points_np[:, :, 0].flatten()
+        y = points_np[:, :, 1].flatten()
+        z = points_np[:, :, 2].flatten()
+        # 获取类别名称
+        label_names = {v: k for k, v in label_map.items()}
+        label_name = label_names.get(label, "Unknown")
+        # 创建 3D 图形
+        fig = plt.figure(figsize=(8, 6))
+        ax = fig.add_subplot(111, projection='3d')
+        # 绘制散点图
+        scatter = ax.scatter(x, y, z, c=z, cmap='viridis', s=10)
+        # 设置标签和标题
+        ax.set_xlabel("X")
+        ax.set_ylabel("Y")
+        ax.set_zlabel("Z")
+        ax.set_title(f"Sample {idx} - Class: {label_name}")
+        # 添加颜色条
+        plt.colorbar(scatter, ax=ax, shrink=0.6, label='Z Value')
+        # 显示图像
+        plt.tight_layout()
+        plt.show()
     def __init__(self,  data_dir, is_test=False):
         self.samples = []
         self.labels = []
@@ -25,9 +58,10 @@ class BsurfaceDataset(Dataset):
                 # 解析标签
                 label_str = file.split('_')[0]
                 label = label_map[label_str]
+                # print( file,label_str,label )
                 self.labels.append(label)
                 # 读取数据
-                grid_size =(10,10)
+                grid_size =(25,25)
                 df = pd.read_csv(os.path.join(data_dir, file),
                                  header=None,  # 如果CSV没有表头
                                  dtype=np.float32,  # 指定数据类型减少内存
@@ -37,8 +71,8 @@ class BsurfaceDataset(Dataset):
                 points = self._load_points(df, grid_size=grid_size)
                 # 存储样本
                 self.samples.append(points)
-                # print(label,label_str)
-                # print(label,len(points[0]),len(points[1]),len(points[2]),type(points))
+                # print(label,points)
+                # self.visualize_sample(len(self.samples)-1)
 
     def _load_points(self, df, grid_size):
         """将CSV转换为网格点云"""
@@ -64,51 +98,86 @@ class BsurfaceDataset(Dataset):
         # if self.test:
         #
         # 归一化
-        points = (points - points.min()) / (points.max() - points.min() + 1e-8)
+        # points = (points - points.min()) / (points.max() - points.min() + 1e-8)
         return torch.FloatTensor(points), torch.tensor(label, dtype=torch.long)
+
+class BasicBlock(nn.Module):
+    def __init__(self, in_channels):
+        super().__init__()
+        self.conv1 = nn.Conv2d(in_channels, in_channels, kernel_size=3, padding=1)
+        self.bn1 = nn.BatchNorm2d(in_channels)
+        self.conv2 = nn.Conv2d(in_channels, in_channels, kernel_size=3, padding=1)
+        self.bn2 = nn.BatchNorm2d(in_channels)
+    def forward(self, x):
+        residual = x
+        x = torch.relu(self.bn1(self.conv1(x)))
+        x = self.bn2(self.conv2(x))
+        x += residual
+        return torch.relu(x)
 
 class Classifier(nn.Module):
     def __init__(self, num_classes):
         super(Classifier, self).__init__()
         self.conv_layers = nn.Sequential(
-            # 第一个卷积块
-            nn.Conv2d(3, 32, kernel_size=3, padding=1),
-            nn.BatchNorm2d(32),
-            nn.ReLU(inplace=True),
-            # nn.MaxPool2d(kernel_size=2, stride=2),
-            # nn.Dropout(p=0.02),
-
-            # 第二个卷积块
-            nn.Conv2d(32, 64, kernel_size=3, padding=1),
+            # 输入 (3, 10, 10)
+            nn.Conv2d(3, 64, kernel_size=3, padding=1),
             nn.BatchNorm2d(64),
             nn.ReLU(inplace=True),
-            nn.MaxPool2d(kernel_size=2, stride=2),
-            nn.Dropout(p=0.5),
+            BasicBlock(64),
+            BasicBlock(64),
+            nn.MaxPool2d(kernel_size=2, stride=2),  # -> (64, 5, 5)
 
-            # 第三个卷积块
-            nn.Conv2d(64, 128, kernel_size=3, padding=1),
-            nn.BatchNorm2d(128),
-            nn.ReLU(inplace=True),
+            BasicBlock(64),
+            BasicBlock(64),
+            nn.AdaptiveAvgPool2d((1, 1))  # -> (64, 1, 1)
         )
-
-        # 自适应平均池化层
-        self.adaptive_avg_pool = nn.AdaptiveAvgPool2d((1, 1))
-
-        # 全连接层
         self.classifier = nn.Sequential(
             nn.Flatten(),
-            nn.Linear(128 * 1 * 1, 512),
-            nn.ReLU(inplace=True),
-            nn.Dropout(p=0.02),
-            nn.Linear(512, 256),
-            nn.ReLU(inplace=True),
-            nn.Dropout(p=0.02),
-            nn.Linear(256, num_classes)
+            nn.Linear(64, 128),
+            nn.ReLU(),
+            nn.Dropout(0.5),
+            nn.Linear(128, num_classes)
         )
+        # super(Classifier, self).__init__()
+        # self.conv_layers = nn.Sequential(
+        #     # 第一个卷积块
+        #     nn.Conv2d(3, 32, kernel_size=3, padding=1),
+        #     nn.BatchNorm2d(32),
+        #     nn.ReLU(inplace=True),
+        #     # nn.MaxPool2d(kernel_size=2, stride=2),
+        #     # nn.Dropout(p=0.02),
+        #
+        #     # 第二个卷积块
+        #     nn.Conv2d(32, 64, kernel_size=3, padding=1),
+        #     nn.BatchNorm2d(64),
+        #     nn.ReLU(inplace=True),
+        #     nn.MaxPool2d(kernel_size=2, stride=2),
+        #     nn.Dropout(p=0.5),
+        #
+        #     # 第三个卷积块
+        #     nn.Conv2d(64, 128, kernel_size=3, padding=1),
+        #     nn.BatchNorm2d(128),
+        #     nn.ReLU(inplace=True),
+        # )
+        #
+        # # 自适应平均池化层
+        # self.adaptive_avg_pool = nn.AdaptiveAvgPool2d((1, 1))
+        #
+        # # 全连接层
+        # self.classifier = nn.Sequential(
+        #     nn.Flatten(),
+        #     nn.Linear(128 * 1 * 1, 512),
+        #     nn.ReLU(inplace=True),
+        #     nn.Dropout(p=0.02),
+        #     nn.Linear(512, 256),
+        #     nn.ReLU(inplace=True),
+        #     nn.Dropout(p=0.02),
+        #     nn.Linear(256, num_classes)
+        # )
 
     def forward(self, x):
         x = self.conv_layers(x)
-        x = self.adaptive_avg_pool(x)
+        # x = self.adaptive_avg_pool(x)
         x = self.classifier(x)
         return x
 def plot_training_curves(train_losses, val_accs):
@@ -161,8 +230,10 @@ def train_model():
     model = Classifier(num_classes=len(label_map)).to(device)
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(model.parameters(), lr=0.001)
-    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=20, gamma=0.5)
-
+    # scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=20, gamma=0.5)
+    scheduler = optim.lr_scheduler.OneCycleLR(optimizer, max_lr=0.01,
+                                              steps_per_epoch=len(train_loader),
+                                              epochs=100)
     best_val_acc = 0.0
     train_losses, val_accs = [], []
 
@@ -227,6 +298,35 @@ def train_model():
         print(f"Epoch {epoch + 1}/",N, f"| Loss: {epoch_loss:.4f} | Val Acc: {val_acc:.4f}")
     return train_losses, val_accs
 
+
+def visualize_point_cloud_by_class(dataset, label_map, num_samples_per_class=5):
+    # 获取第一个样本
+    for i  in range(len(dataset)):
+        points, label = dataset[i]  # 返回的是 Tensor (3, 10, 10)
+        # 转换为 NumPy 并展平为 (100, 3)
+        points_np = points.numpy().transpose(1, 2, 0)  # -> (10, 10, 3)
+        x = points_np[:, :, 0].flatten()
+        y = points_np[:, :, 1].flatten()
+        z = points_np[:, :, 2].flatten()
+        # 打印标签信息
+        label_names = {v: k for k, v in label_map.items()}
+        print(f"Label: {label.item()} => '{label_names[label.item()]}'")
+        # 创建 3D 图形
+        fig = plt.figure(figsize=(8, 6))
+        ax = fig.add_subplot(111, projection='3d')
+        # 绘制散点图
+        scatter = ax.scatter(x, y, z, c=z, cmap='viridis', s=20)
+        # 设置标签和标题
+        ax.set_xlabel("X")
+        ax.set_ylabel("Y")
+        ax.set_zlabel("Z")
+        ax.set_title(f"First Sample: {label_names[label.item()]}")
+        # 添加颜色条
+        plt.colorbar(scatter, ax=ax, shrink=0.6, label='Z Value')
+        # 显示图像
+        plt.tight_layout()
+        plt.show()
+
 if __name__ == "__main__":
     print("开始训练")
     # 初始化数据集
@@ -245,6 +345,7 @@ if __name__ == "__main__":
     val_loader = DataLoader(val_dataset, batch_size=32)
     test_loader = DataLoader(test_dataset, batch_size=32)
     print(train_loader.__len__(), val_loader.__len__(),test_loader.__len__())
-    train_losses, val_accs = train_model()
-    # 绘制曲线
-    plot_training_curves(train_losses, val_accs)
+    visualize_point_cloud_by_class(train_dataset, label_map, num_samples_per_class=5)
+    # train_losses, val_accs = train_model()
+    # # # 绘制曲线
+    # plot_training_curves(train_losses, val_accs)
