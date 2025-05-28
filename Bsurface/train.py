@@ -43,6 +43,7 @@ class BsurfaceDataset(Dataset):
         ax.set_zlabel("Z")
         ax.set_title(f"Sample {idx} - Class: {label_name}")
         # 添加颜色条
+        ax.set_box_aspect([1, 1, 1])  # 统一 XYZ 比例
         plt.colorbar(scatter, ax=ax, shrink=0.6, label='Z Value')
         # 显示图像
         plt.tight_layout()
@@ -85,7 +86,6 @@ class BsurfaceDataset(Dataset):
         data = df.to_numpy(dtype=np.float32)
         # 直接重塑形状 (假设数据排列顺序正确)
         data = data.reshape(grid_size[0], grid_size[1], 3)
-        # 调整通道顺序 (3, H, W)
         return data.transpose(2, 0, 1)
 
     def __len__(self):
@@ -346,6 +346,6 @@ if __name__ == "__main__":
     test_loader = DataLoader(test_dataset, batch_size=32)
     print(train_loader.__len__(), val_loader.__len__(),test_loader.__len__())
     visualize_point_cloud_by_class(train_dataset, label_map, num_samples_per_class=5)
-    # train_losses, val_accs = train_model()
+    train_losses, val_accs = train_model()
     # # # 绘制曲线
-    # plot_training_curves(train_losses, val_accs)
+    plot_training_curves(train_losses, val_accs)
